@@ -182,8 +182,8 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
     H.Write(nomac_data)
     hmac_val := H.Sum(nil)
 
-    userlib.DatastoreSet(string(entry_UUID[:]), append(hmac_val, nomac_data...))
-    userlib.KeystoreSet(string(entry_UUID[:]), user_rsa_key.PublicKey)
+    userlib.DatastoreSet(entry_UUID.String(), append(hmac_val, nomac_data...))
+    userlib.KeystoreSet(entry_UUID.String(), user_rsa_key.PublicKey)
 
     return &userdata, err
 }
@@ -206,19 +206,32 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
     /*** YOUR CODE HERE ***/
     entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(password), []byte(username), userlib.AESKeySize))
     
-    entry_data, valid_user := userlib.DatastoreGet(string(entry_UUID[:]))
+    entry_data, valid_user := userlib.DatastoreGet(entry_UUID.String())
+    if !valid_user {
+        err = errors.New("Error: Invalid credentials")
+        return nil, err
+    }
 
     HMAC_val := entry_data[:userlib.HashSize]
     HMAC_in := entry_data[userlib.HashSize:]
     e_salt := entry_data[userlib.HashSize:userlib.HashSize+16]
     h_salt := entry_data[userlib.HashSize+16:userlib.HashSize+32]
     IV := entry_data[userlib.HashSize+32:userlib.HashSize+32+userlib.BlockSize]
-    userdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
+    E_M_userdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
 
-    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt), userlib.AESKeySize), IV)
+    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt...), userlib.AESKeySize), IV)
+    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt...), userlib.AESKeySize*4))
 
-    HMAC_key := userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt), userlib.AESKeySize*4)
-    H := userlib.NewHMAC(HMAC_key)
+    H.Write(HMAC_in)
+    if !userlib.Equal(HMAC_val, H.Sum(nil)) {
+        err = errors.New("Error: Corrupt data")
+        return nil, err
+    }
+
+    D.XORKeyStream(E_M_userdata, E_M_userdata)
+
+    var userdata User
+    err = json.Unmarshal(E_M_userdata, &userdata)
 
     return &userdata, err
 }
@@ -261,6 +274,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 func (userdata *User) AppendFile(filename string, data []byte) (err error){
     /* APPEND FILE */
     /*** YOUR CODE HERE ***/
+    return
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -278,6 +292,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error){
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
     /* LOAD FILE */
     /*** YOUR CODE HERE ***/
+    return
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -303,6 +318,7 @@ type sharingRecord struct {
 func (userdata *User) ShareFile(filename string, recipient string) (msgid string, err error) {
     /* SHARE FILE */
     /*** YOUR CODE HERE ***/
+    return
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -311,9 +327,10 @@ func (userdata *User) ShareFile(filename string, recipient string) (msgid string
   filename even is!  However, the recipient must ensure that it is authentically
   from the sender.
 \*******************************************************************************/
-func (userdata *User) ReceiveFile(filename string, sender string, msgid string) error {
+func (userdata *User) ReceiveFile(filename string, sender string, msgid string) (err error) {
     /* RECEIVE FILE */
     /*** YOUR CODE HERE ***/
+    return
 }
 
 // Removes access for all others.
@@ -322,6 +339,7 @@ func (userdata *User) ReceiveFile(filename string, sender string, msgid string) 
 func (userdata *User) RevokeFile(filename string) (err error) {
     /* REVOKE FILE */
     /*** YOUR CODE HERE ***/
+    return
 }
 
 /***************************************USERLIB FUNCTIONS:****************************************\
