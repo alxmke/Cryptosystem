@@ -101,7 +101,7 @@ func randomBytes(bytes int) (data []byte){
     if _, err := io.ReadFull(userlib.Reader, data); err != nil {
         panic(err)
     }
-    return
+    return data
 }
 
 var DebugPrint = false
@@ -166,20 +166,24 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
     IV := randomBytes(userlib.BlockSize)
 
     entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(password), []byte(username), userlib.AESKeySize))
-    E := CFBEncrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt), userlib.AESKeySize), IV)
-    H := NewHMAC(userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt), userlib.AESKeySize*4))
+    E := userlib.CFBEncrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt...), userlib.AESKeySize), IV)
+    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt...), userlib.AESKeySize*4))
     
-    user_rsa_key,_ = GenerateRSAKey()
+    user_rsa_key,_ := userlib.GenerateRSAKey()
     userdata := User{user_rsa_key}
 
     E_M_userdata,_ := json.Marshal(userdata)
-    E(E_M_userdata, E_M_userdata)
+    E.XORKeyStream(E_M_userdata, E_M_userdata)
 
-    nomac_data := append(e_salt, h_salt, IV, E_M_userdata)
-    hmac_val := H(nomac_data)
+    nomac_data := append(e_salt, h_salt...)
+    nomac_data = append(nomac_data, IV...)
+    nomac_data = append(nomac_data, E_M_userdata...) //stupid Go workaround to concat these arrays...
 
-    DatastoreSet(entry_UUID, append(hmac_val, nomac_data))
-    KeystoreSet(entry_UUID, user_rsa_key.PublicKey)
+    H.Write(nomac_data)
+    hmac_val := H.Sum(nil)
+
+    userlib.DatastoreSet(string(entry_UUID[:]), append(hmac_val, nomac_data...))
+    userlib.KeystoreSet(string(entry_UUID[:]), user_rsa_key.PublicKey)
 
     return &userdata, err
 }
@@ -202,19 +206,19 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
     /*** YOUR CODE HERE ***/
     entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(password), []byte(username), userlib.AESKeySize))
     
-    entry_data := DatastoreGet(entry_UUID)
+    entry_data, valid_user := userlib.DatastoreGet(string(entry_UUID[:]))
 
     HMAC_val := entry_data[:userlib.HashSize]
+    HMAC_in := entry_data[userlib.HashSize:]
     e_salt := entry_data[userlib.HashSize:userlib.HashSize+16]
     h_salt := entry_data[userlib.HashSize+16:userlib.HashSize+32]
     IV := entry_data[userlib.HashSize+32:userlib.HashSize+32+userlib.BlockSize]
-    userdata = entry_data[userlib.HashSize+32+userlib.BlockSize:]
+    userdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
 
-    CRYPTO_key := userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt), userlib.AESKeySize)
-    D := CFBDecrypter
+    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt), userlib.AESKeySize), IV)
 
     HMAC_key := userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt), userlib.AESKeySize*4)
-    H := NewHMAC(HMAC_key)
+    H := userlib.NewHMAC(HMAC_key)
 
     return &userdata, err
 }
