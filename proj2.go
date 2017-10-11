@@ -129,6 +129,9 @@ func debugMsg(format string, args ...interface{}) {
 type User struct {
     /*** YOUR CODE HERE ***/
     RSA_key *rsa.PrivateKey
+    Files map[string][]byte
+    Username string
+    Password string
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -161,6 +164,9 @@ type User struct {
 func InitUser(username string, password string) (userdataptr *User, err error) {
     /* INIT USER */
     /*** YOUR CODE HERE ***/
+    user_rsa_key,_ := userlib.GenerateRSAKey()
+    userdata := User{user_rsa_key, make(map[string][]byte), username, password}
+
     e_salt := randomBytes(16)
     h_salt := randomBytes(16)
     IV := randomBytes(userlib.BlockSize)
@@ -168,9 +174,6 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
     entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(password), []byte(username), userlib.AESKeySize))
     E := userlib.CFBEncrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt...), userlib.AESKeySize), IV)
     H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt...), userlib.AESKeySize*4))
-    
-    user_rsa_key,_ := userlib.GenerateRSAKey()
-    userdata := User{user_rsa_key}
 
     E_M_userdata,_ := json.Marshal(userdata)
     E.XORKeyStream(E_M_userdata, E_M_userdata)
@@ -252,6 +255,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 func (userdata *User) StoreFile(filename string, data []byte) {
     /* STORE FILE */
     /*** YOUR CODE HERE ***/
+    userdata.Files[filename] = data
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -274,6 +278,12 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 func (userdata *User) AppendFile(filename string, data []byte) (err error){
     /* APPEND FILE */
     /*** YOUR CODE HERE ***/
+    userdata.Files[filename] = append(userdata.Files[filename], data...)
+    /*
+      if second (userdata.files[filename]) is what's mean by "sending unchanged bytes again"
+      could implement to have n_appends and have filedata be an iterable list of data chunks
+      [][]byte 0...n
+    */
     return
 }
 
@@ -292,6 +302,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error){
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
     /* LOAD FILE */
     /*** YOUR CODE HERE ***/
+    data = userdata.Files[filename]
     return
 }
 
@@ -333,8 +344,8 @@ func (userdata *User) ReceiveFile(filename string, sender string, msgid string) 
     return
 }
 
-// Removes access for all others.
 /*******************************INSTRUCTOR NOTE*********************************\
+  Removes access for all others.
 \*******************************************************************************/
 func (userdata *User) RevokeFile(filename string) (err error) {
     /* REVOKE FILE */
@@ -383,7 +394,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
 \*************************************************************************************************/
 
 /*******************************************PART 1:***********************************************\
-    COMPLETED []
+    COMPLETED [x]
     • password (assumed to have good entropy)
     • use password to generate one random RSA key
     • use password to help populate the user data structure
@@ -393,7 +404,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
     • the user's name MUST be confidential to the data store 
     InitUser(username string, password string)
 
-    COMPLETED []
+    COMPLETED [x]
     • IF (username and password are correct) THEN (LoadUser() MUST load the appropriate
       information from the data store to populate the User data structure)
     • IF (the data is corrupted) THEN (return an error)

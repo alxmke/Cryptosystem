@@ -1,0 +1,57 @@
+func SecureDatastoreSet(key string, name string, structure interface{}) (uuid.UUID) {
+    e_salt := randomBytes(16)
+    h_salt := randomBytes(16)
+    IV := randomBytes(userlib.BlockSize)
+
+    entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(key), []byte(name), userlib.AESKeySize))
+    E := userlib.CFBEncrypter(userlib.PBKDF2Key([]byte(key), append([]byte(name), e_salt...), userlib.AESKeySize), IV)
+    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(key), append([]byte(name), h_salt...), userlib.AESKeySize*4))
+
+    E_M_structure,_ := json.Marshal(structure)
+    E.XORKeyStream(E_M_structure, E_M_structure)
+
+    nomac_data := append(e_salt, h_salt...)
+    nomac_data = append(nomac_data, IV...)
+    nomac_data = append(nomac_data, E_M_structure...) //stupid Go workaround to concat these arrays...
+
+    H.Write(nomac_data)
+    hmac_val := H.Sum(nil)
+
+    userlib.DatastoreSet(entry_UUID.String(), append(hmac_val, nomac_data...))
+
+    return entry_UUID
+}
+
+func SecureDatastoreGet(key string, name string, structure interface{}) (err error) {
+    entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(key), []byte(name), userlib.AESKeySize))
+    
+    entry_data, valid_user := userlib.DatastoreGet(entry_UUID.String())
+    if !valid_user {
+        err = errors.New("Error: Invalid credentials")
+        structure = nil
+        return err
+    }
+
+    HMAC_val := entry_data[:userlib.HashSize]
+    HMAC_in := entry_data[userlib.HashSize:]
+    e_salt := entry_data[userlib.HashSize:userlib.HashSize+16]
+    h_salt := entry_data[userlib.HashSize+16:userlib.HashSize+32]
+    IV := entry_data[userlib.HashSize+32:userlib.HashSize+32+userlib.BlockSize]
+    E_M_userdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
+
+    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(key), append([]byte(name), e_salt...), userlib.AESKeySize), IV)
+    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(key), append([]byte(name), h_salt...), userlib.AESKeySize*4))
+
+    H.Write(HMAC_in)
+    if !userlib.Equal(HMAC_val, H.Sum(nil)) {
+        err = errors.New("Error: Corrupt data")
+        structure = nil
+        return err
+    }
+
+    D.XORKeyStream(E_M_userdata, E_M_userdata)
+
+    err = json.Unmarshal(E_M_userdata, structure)
+
+    return err
+}
