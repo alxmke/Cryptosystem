@@ -143,11 +143,10 @@ func EncryptStore(mdata []byte, key string, name string) (e_UUID uuid.UUID) {
 }
 
 func DecryptGet(key string, name string) (mdata []byte, err error) {
-    /*
     entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(key), []byte(name), userlib.AESKeySize))
-    
-    entry_data, valid_user := userlib.DatastoreGet(entry_UUID.String())
-    if !valid_user {
+
+    entry_data, valid := userlib.DatastoreGet(entry_UUID.String())
+    if !valid {
         err = errors.New("Error: Invalid credentials")
         return nil, err
     }
@@ -157,10 +156,10 @@ func DecryptGet(key string, name string) (mdata []byte, err error) {
     e_salt := entry_data[userlib.HashSize:userlib.HashSize+16]
     h_salt := entry_data[userlib.HashSize+16:userlib.HashSize+32]
     IV := entry_data[userlib.HashSize+32:userlib.HashSize+32+userlib.BlockSize]
-    E_M_userdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
+    emdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
 
-    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt...), userlib.AESKeySize), IV)
-    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt...), userlib.AESKeySize*4))
+    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(key), append([]byte(name), e_salt...), userlib.AESKeySize), IV)
+    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(key), append([]byte(name), h_salt...), userlib.AESKeySize*4))
 
     H.Write(HMAC_in)
     if !userlib.Equal(HMAC_val, H.Sum(nil)) {
@@ -168,12 +167,9 @@ func DecryptGet(key string, name string) (mdata []byte, err error) {
         return nil, err
     }
 
-    D.XORKeyStream(E_M_userdata, E_M_userdata)
-
-    var userdata User
-    err = json.Unmarshal(E_M_userdata, &userdata)
-    */
-    return mdata, err
+    D.XORKeyStream(emdata, emdata)
+    mdata = emdata
+    return mdata, nil
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -243,34 +239,16 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 func GetUser(username string, password string) (userdataptr *User, err error) {
     /* LOAD USER */
     /*** YOUR CODE HERE ***/
-    entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(password), []byte(username), userlib.AESKeySize))
-    
-    entry_data, valid_user := userlib.DatastoreGet(entry_UUID.String())
-    if !valid_user {
-        err = errors.New("Error: Invalid credentials")
+    err = nil
+    var mdata []byte
+    mdata, err = DecryptGet(password, username)
+
+    if err != nil {
         return nil, err
     }
-
-    HMAC_val := entry_data[:userlib.HashSize]
-    HMAC_in := entry_data[userlib.HashSize:]
-    e_salt := entry_data[userlib.HashSize:userlib.HashSize+16]
-    h_salt := entry_data[userlib.HashSize+16:userlib.HashSize+32]
-    IV := entry_data[userlib.HashSize+32:userlib.HashSize+32+userlib.BlockSize]
-    E_M_userdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
-
-    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt...), userlib.AESKeySize), IV)
-    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt...), userlib.AESKeySize*4))
-
-    H.Write(HMAC_in)
-    if !userlib.Equal(HMAC_val, H.Sum(nil)) {
-        err = errors.New("Error: Corrupt data")
-        return nil, err
-    }
-
-    D.XORKeyStream(E_M_userdata, E_M_userdata)
 
     var userdata User
-    err = json.Unmarshal(E_M_userdata, &userdata)
+    err = json.Unmarshal(mdata, &userdata)
 
     return &userdata, err
 }
