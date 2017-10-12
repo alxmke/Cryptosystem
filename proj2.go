@@ -343,13 +343,13 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error){
     json.Unmarshal(m_file, &file)
 
     // append data to file
-    file.N_chunks++
+    file.N_appends++
     file.Filedata_keys = append(file.Filedata_keys, string(randomBytes(64)[:]))
     file.Filedata_salts = append(file.Filedata_salts, string(randomBytes(16)[:]))
 
     // store data
-    data_key := file.Filedata_keys[file.N_chunks]
-    data_salt := file.Filedata_salts[file.N_chunks]
+    data_key := file.Filedata_keys[file.N_appends]
+    data_salt := file.Filedata_salts[file.N_appends]
     sUUID_fd := SecureUUID(data_key, data_salt)
     SecureStore(sUUID_fd, data, data_key, data_salt)
 
@@ -375,9 +375,47 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error){
 func (userdata *User) LoadFile(filename string) (data []byte, err error) {
     /* LOAD FILE */
     /*** YOUR CODE HERE ***/
-//    data = userdata.Files[filename]
+    // retrieve file location information
+    password := userdata.Password
+    sUUID_fc := SecureUUID(password, filename)
+    var m_file_credentials []byte
+    m_file_credentials, err = SecureGet(sUUID_fc, password, filename)
+    if err != nil {
+        return nil, err 
+    }
+    var file_credentials FileCredentials
+    json.Unmarshal(m_file_credentials, &file_credentials)
 
-    return
+    // retrieve file
+    file_key := file_credentials.File_key
+    file_salt := file_credentials.File_salt
+    sUUID_f := SecureUUID(file_key, file_salt)
+    var m_file []byte
+    m_file, err = SecureGet(sUUID_f, file_key, file_salt)
+    if err != nil {
+        return nil, err
+    }
+    var file File
+    json.Unmarshal(m_file, &file)
+
+    // piecing together the file data
+    var complete_data []byte
+    var current_data []byte
+    // note: i <= N_appends, by implementation
+    for i:=0; i<=file.N_appends; i++ {
+        data_key := file.Filedata_keys[i]
+        data_salt := file.Filedata_salts[i]
+        sUUID_fd := SecureUUID(data_key, data_salt)
+        current_data, err = SecureGet(sUUID_fd, data_key, data_salt)
+        // if any of the file is corrupt, nil is returned
+        if err != nil {
+            return nil, err
+        }
+        // I foresee some language weirdness making "current_data..." error for data_len = 1
+        complete_data = append(complete_data, current_data...)
+    }
+
+    return complete_data, err
 }
 
 type FileCredentials struct {
@@ -388,7 +426,7 @@ type FileCredentials struct {
 
 type File struct {
     /*** YOUR CODE HERE ***/
-    N_chunks uint
+    N_appends int
     Filedata_keys []string
     Filedata_salts []string
 }
