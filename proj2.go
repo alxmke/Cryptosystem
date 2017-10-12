@@ -481,7 +481,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
       reinitializes file (with most current data) to a new, different location (unknown to
       previous users with delegated access) if file isn't corrupt/unaccessible
     */
-    if err !: nil {
+    if err != nil {
         return err
     }
     userdata.StoreFile(filename, data)
