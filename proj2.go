@@ -475,7 +475,18 @@ func (userdata *User) ReceiveFile(filename string, sender string, msgid string) 
 func (userdata *User) RevokeFile(filename string) (err error) {
     /* REVOKE FILE */
     /*** YOUR CODE HERE ***/
-    return
+    // gets the file data, error will be able to tell if file was corrupt/unaccessible
+    data, err := userdata.LoadFile(filename)
+    /*
+      reinitializes file (with most current data) to a new, different location (unknown to
+      previous users with delegated access) if file isn't corrupt/unaccessible
+    */
+    if err !: nil {
+        return err
+    }
+    userdata.StoreFile(filename, data)
+
+    return err
 }
 
 /***************************************USERLIB FUNCTIONS:****************************************\
