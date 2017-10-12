@@ -119,12 +119,17 @@ func debugMsg(format string, args ...interface{}) {
     }
 }
 
-func EncryptStore(mdata []byte, key string, name string) (e_UUID uuid.UUID) {
+func SecureUUID(key string, name string) (string) {
+    /*** YOUR CODE HERE ***/
+    return bytesToUUID(userlib.PBKDF2Key([]byte(key), []byte(name), userlib.AESKeySize)).String()
+}
+
+func SecureStore(data_key string, mdata []byte, key string, name string) {
+    /*** YOUR CODE HERE ***/
     e_salt := randomBytes(16)
     h_salt := randomBytes(16)
     IV := randomBytes(userlib.BlockSize)
 
-    entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(key), []byte(name), userlib.AESKeySize))
     E := userlib.CFBEncrypter(userlib.PBKDF2Key([]byte(key), append([]byte(name), e_salt...), userlib.AESKeySize), IV)
     H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(key), append([]byte(name), h_salt...), userlib.AESKeySize*4))
 
@@ -137,15 +142,12 @@ func EncryptStore(mdata []byte, key string, name string) (e_UUID uuid.UUID) {
     H.Write(nomac_data)
     hmac_val := H.Sum(nil)
 
-    userlib.DatastoreSet(entry_UUID.String(), append(hmac_val, nomac_data...))
-
-    return entry_UUID
+    userlib.DatastoreSet(data_key, append(hmac_val, nomac_data...))
 }
 
-func DecryptGet(key string, name string) (mdata []byte, err error) {
-    entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(key), []byte(name), userlib.AESKeySize))
-
-    entry_data, valid := userlib.DatastoreGet(entry_UUID.String())
+func SecureGet(data_key string, key string, name string) (mdata []byte, err error) {
+    /*** YOUR CODE HERE ***/
+    entry_data, valid := userlib.DatastoreGet(data_key)
     if !valid {
         err = errors.New("Error: Invalid credentials")
         return nil, err
@@ -218,8 +220,9 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
     user_rsa_key,_ := userlib.GenerateRSAKey()
     userdata := User{user_rsa_key, username, password}
     m_userdata,_ := json.Marshal(userdata)
-    entry_UUID := EncryptStore(m_userdata, password, username)
-    userlib.KeystoreSet(entry_UUID.String(), user_rsa_key.PublicKey)
+    sUUID := SecureUUID(password, username)
+    SecureStore(sUUID, m_userdata, password, username)
+    userlib.KeystoreSet(sUUID, user_rsa_key.PublicKey)
 
     return &userdata, err
 }
@@ -241,7 +244,8 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
     /*** YOUR CODE HERE ***/
     err = nil
     var mdata []byte
-    mdata, err = DecryptGet(password, username)
+    sUUID := SecureUUID(password, username)
+    mdata, err = SecureGet(sUUID, password, username)
 
     if err != nil {
         return nil, err
@@ -269,31 +273,30 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 func (userdata *User) StoreFile(filename string, data []byte) {
     /* STORE FILE */
     /*** YOUR CODE HERE ***/
-//    userdata.Files[filename] = data
-    /*
-    password := userdata.password
-    filedata := File{filename, 0, [][]byte{data}}
+    // creating file location information
+    file_credentials := FileCredentials{string(randomBytes(64)[:]), string(randomBytes(16)[:])}
+    password := userdata.Password
+    sUUID_fc := SecureUUID(password, filename)
+    m_file_credentials,_ := json.Marshal(file_credentials)
+    SecureStore(sUUID_fc, m_file_credentials, password, filename)
 
-    e_salt := randomBytes(16)
-    h_salt := randomBytes(16)
-    IV := randomBytes(userlib.BlockSize)
+    // creating the initial file
+    file := File{0, nil, nil}
+    file.Filedata_keys = append(file.Filedata_keys, string(randomBytes(64)[:]))
+    file.Filedata_salts = append(file.Filedata_salts, string(randomBytes(16)[:]))
 
-    entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(password), []byte(filename), userlib.AESKeySize))
-    E := userlib.CFBEncrypter(userlib.PBKDF2Key([]byte(password), append([]byte(filename), e_salt...), userlib.AESKeySize), IV)
-    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(password), append([]byte(filename), h_salt...), userlib.AESKeySize*4))
+    // storing the initial file data
+    data_key := file.Filedata_keys[0]
+    data_salt := file.Filedata_salts[0]
+    sUUID_fd := SecureUUID(data_key, data_salt)
+    SecureStore(sUUID_fd, data, data_key, data_salt)
 
-    E_M_filedata,_ := json.Marshal(filedata)
-    E.XORKeyStream(E_M_filedata, E_M_filedata)
-
-    nomac_data := append(e_salt, h_salt...)
-    nomac_data = append(nomac_data, IV...)
-    nomac_data = append(nomac_data, E_M_filedata...) //stupid Go workaround to concat these arrays...
-
-    H.Write(nomac_data)
-    hmac_val := H.Sum(nil)
-
-    userlib.DatastoreSet(entry_UUID.String(), append(hmac_val, nomac_data...))
-    */
+    // storing the file
+    file_key := file_credentials.File_key
+    file_salt := file_credentials.File_salt
+    sUUID_f := SecureUUID(file_key, file_salt)
+    m_file,_ := json.Marshal(file)
+    SecureStore(sUUID_f, m_file, file_key, file_salt)
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -316,13 +319,45 @@ func (userdata *User) StoreFile(filename string, data []byte) {
 func (userdata *User) AppendFile(filename string, data []byte) (err error){
     /* APPEND FILE */
     /*** YOUR CODE HERE ***/
-//    userdata.Files[filename] = append(userdata.Files[filename], data...)
-    /*
-      if second (userdata.files[filename]) is what's mean by "sending unchanged bytes again"
-      could implement to have n_appends and have filedata be an iterable list of data chunks
-      [][]byte 0...n
-    */
-    return
+    // retrieve file location information
+    password := userdata.Password
+    sUUID_fc := SecureUUID(password, filename)
+    var m_file_credentials []byte
+    m_file_credentials, err = SecureGet(sUUID_fc, password, filename)
+    if err != nil {
+        return err 
+    }
+    var file_credentials FileCredentials
+    json.Unmarshal(m_file_credentials, &file_credentials)
+
+    // retrieve file
+    file_key := file_credentials.File_key
+    file_salt := file_credentials.File_salt
+    sUUID_f := SecureUUID(file_key, file_salt)
+    var m_file []byte
+    m_file, err = SecureGet(sUUID_f, file_key, file_salt)
+    if err != nil {
+        return err
+    }
+    var file File
+    json.Unmarshal(m_file, &file)
+
+    // append data to file
+    file.N_chunks++
+    file.Filedata_keys = append(file.Filedata_keys, string(randomBytes(64)[:]))
+    file.Filedata_salts = append(file.Filedata_salts, string(randomBytes(16)[:]))
+
+    // store data
+    data_key := file.Filedata_keys[file.N_chunks]
+    data_salt := file.Filedata_salts[file.N_chunks]
+    sUUID_fd := SecureUUID(data_key, data_salt)
+    SecureStore(sUUID_fd, data, data_key, data_salt)
+
+    // update/store new file version
+    m_file,_ = json.Marshal(file)
+    SecureStore(sUUID_f, m_file, file_key, file_salt)
+
+    return err
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -341,47 +376,21 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
     /* LOAD FILE */
     /*** YOUR CODE HERE ***/
 //    data = userdata.Files[filename]
-    /*
-    entry_UUID := bytesToUUID(userlib.PBKDF2Key([]byte(password), []byte(username), userlib.AESKeySize))
-    
-    entry_data, valid_user := userlib.DatastoreGet(entry_UUID.String())
-    if !valid_user {
-        err = errors.New("Error: Invalid credentials")
-        return nil, err
-    }
 
-    HMAC_val := entry_data[:userlib.HashSize]
-    HMAC_in := entry_data[userlib.HashSize:]
-    e_salt := entry_data[userlib.HashSize:userlib.HashSize+16]
-    h_salt := entry_data[userlib.HashSize+16:userlib.HashSize+32]
-    IV := entry_data[userlib.HashSize+32:userlib.HashSize+32+userlib.BlockSize]
-    E_M_userdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
-
-    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(password), append([]byte(username), e_salt...), userlib.AESKeySize), IV)
-    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(password), append([]byte(username), h_salt...), userlib.AESKeySize*4))
-
-    H.Write(HMAC_in)
-    if !userlib.Equal(HMAC_val, H.Sum(nil)) {
-        err = errors.New("Error: Corrupt data")
-        return nil, err
-    }
-
-    D.XORKeyStream(E_M_userdata, E_M_userdata)
-
-    var userdata User
-    err = json.Unmarshal(E_M_userdata, &userdata)    
-    */
     return
+}
+
+type FileCredentials struct {
+    /*** YOUR CODE HERE ***/
+    File_key string
+    File_salt string
 }
 
 type File struct {
     /*** YOUR CODE HERE ***/
-    Sharing_record_location string
-}
-
-type Filedata struct {
-    /*** YOUR CODE HERE ***/
-    data []byte
+    N_chunks uint
+    Filedata_keys []string
+    Filedata_salts []string
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -390,8 +399,7 @@ type Filedata struct {
 \*******************************************************************************/
 type sharingRecord struct {
     /*** YOUR CODE HERE ***/
-    N_keys uint
-    Filedata_keys []string
+    FileRecord FileCredentials
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
