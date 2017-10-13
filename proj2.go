@@ -119,42 +119,34 @@ func debugMsg(format string, args ...interface{}) {
     }
 }
 
-func SecureUUID(name byte, key string) (string) {
+func SecureUUID(name []byte, key []byte) (string) {
     /*** YOUR CODE HERE ***/
-    return bytesToUUID(userlib.PBKDF2Key([]byte(key), []byte(name), userlib.AESKeySize)).String()
+    return bytesToUUID(userlib.PBKDF2Key(key, name, userlib.AESKeySize)).String()
 }
 
-func SecureStore(mdata []byte, key string, name string) {
+func SecureStore(m_data []byte, key []byte, name []byte) {
     /*** YOUR CODE HERE ***/
     e_salt := randomBytes(16)
     h_salt := randomBytes(16)
     IV := randomBytes(userlib.BlockSize)
 
-    E := userlib.CFBEncrypter(userlib.PBKDF2Key([]byte(key), append([]byte(name), e_salt...), userlib.AESKeySize), IV)
-    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(key), append([]byte(name), h_salt...), userlib.AESKeySize*4))
+    E := userlib.CFBEncrypter(userlib.PBKDF2Key(key, append(name, e_salt...), userlib.AESKeySize), IV)
+    H := userlib.NewHMAC(userlib.PBKDF2Key(key, append(name, h_salt...), userlib.AESKeySize*4))
 
-    E.XORKeyStream(mdata, mdata)
+    E.XORKeyStream(m_data, m_data)
 
     nomac_data := append(e_salt, h_salt...)
     nomac_data = append(nomac_data, IV...)
-    nomac_data = append(nomac_data, mdata...) //stupid Go workaround to concat these arrays...
+    nomac_data = append(nomac_data, m_data...) //stupid Go workaround to concat these arrays...
 
     H.Write(nomac_data)
     hmac_val := H.Sum(nil)
 
- debugMsg("...%v...%v...", name, key)
- debugMsg("%v", SecureUUID(name, key))
- debugMsg("%v", SecureUUID(name, key))
- debugMsg("%v", SecureUUID(name, key))
     userlib.DatastoreSet(SecureUUID(name, key), append(hmac_val, nomac_data...))
 }
 
-func SecureGet(key string, name string) (mdata []byte, err error) {
+func SecureGet(key []byte, name []byte) (m_data []byte, err error) {
     /*** YOUR CODE HERE ***/
- debugMsg("...%v...%v...", name, key)
- debugMsg("%v", SecureUUID(name, key))
- debugMsg("%v", SecureUUID(name, key))
- debugMsg("%v", SecureUUID(name, key))
     entry_data, valid := userlib.DatastoreGet(SecureUUID(name, key))
     if !valid {
         err = errors.New("Error: Invalid credentials")
@@ -171,10 +163,10 @@ func SecureGet(key string, name string) (mdata []byte, err error) {
     e_salt := entry_data[userlib.HashSize:userlib.HashSize+16]
     h_salt := entry_data[userlib.HashSize+16:userlib.HashSize+32]
     IV := entry_data[userlib.HashSize+32:userlib.HashSize+32+userlib.BlockSize]
-    emdata := entry_data[userlib.HashSize+32+userlib.BlockSize:]
+    em_data := entry_data[userlib.HashSize+32+userlib.BlockSize:]
 
-    D := userlib.CFBDecrypter(userlib.PBKDF2Key([]byte(key), append([]byte(name), e_salt...), userlib.AESKeySize), IV)
-    H := userlib.NewHMAC(userlib.PBKDF2Key([]byte(key), append([]byte(name), h_salt...), userlib.AESKeySize*4))
+    D := userlib.CFBDecrypter(userlib.PBKDF2Key(key, append(name, e_salt...), userlib.AESKeySize), IV)
+    H := userlib.NewHMAC(userlib.PBKDF2Key(key, append(name, h_salt...), userlib.AESKeySize*4))
 
     H.Write(hmac_in)
     if !userlib.Equal(hmac_val, H.Sum(nil)) {
@@ -182,9 +174,9 @@ func SecureGet(key string, name string) (mdata []byte, err error) {
         return nil, err
     }
 
-    D.XORKeyStream(emdata, emdata)
-    mdata = emdata
-    return mdata, nil
+    D.XORKeyStream(em_data, em_data)
+    m_data = em_data
+    return m_data, nil
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -196,8 +188,8 @@ func SecureGet(key string, name string) (mdata []byte, err error) {
 type User struct {
     /*** YOUR CODE HERE ***/
     RSA_key *rsa.PrivateKey
-    Username string
-    Password string
+    Username []byte
+    Password []byte
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -230,12 +222,15 @@ type User struct {
 func InitUser(username string, password string) (userdataptr *User, err error) {
     /* INIT USER */
     /*** YOUR CODE HERE ***/
-    user_rsa_key,_ := userlib.GenerateRSAKey()
-    userdata := User{user_rsa_key, username, password}
-    m_userdata,_ := json.Marshal(userdata)
-    SecureStore(m_userdata, password, username)
+    b_username := []byte(username)
+    b_password := []byte(password)
 
-    sUUID := SecureUUID(username, password)
+    user_rsa_key,_ := userlib.GenerateRSAKey()
+    userdata := User{user_rsa_key, b_username, b_password}
+    m_userdata,_ := json.Marshal(userdata)
+    SecureStore(m_userdata, b_password, b_username)
+
+    sUUID := SecureUUID(b_username, b_password)
     userlib.KeystoreSet(sUUID, user_rsa_key.PublicKey)
 
     return &userdata, err
@@ -256,13 +251,13 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 func GetUser(username string, password string) (userdataptr *User, err error) {
     /* LOAD USER */
     /*** YOUR CODE HERE ***/
-    mdata, err := SecureGet(password, username)
+    m_data, err := SecureGet([]byte(password), []byte(username))
     if err != nil {
         return nil, err
     }
 
     var userdata User
-    json.Unmarshal(mdata, &userdata)
+    json.Unmarshal(m_data, &userdata)
 
     return &userdata, err
 }
@@ -284,18 +279,18 @@ func (userdata *User) StoreFile(filename string, data []byte) {
     /* STORE FILE */
     /*** YOUR CODE HERE ***/
     // creating file credentials
-    file_credentials := FileCredentials{string(randomBytes(64)[:]), string(randomBytes(16)[:])}
+    file_credentials := FileCredentials{randomBytes(64), randomBytes(16)}
     // creating the initial file
-    file := File{0, []string{string(randomBytes(64)[:])}, []string{string(randomBytes(16)[:])}}
-
+    file := File{0, [][]byte{randomBytes(64)}, [][]byte{randomBytes(16)}}
     // storing the file credentials
     m_file_credentials,_ := json.Marshal(file_credentials)
-    SecureStore(m_file_credentials, userdata.Password, filename)
+    SecureStore(m_file_credentials, []byte(userdata.Password), []byte(filename))
     // storing the file
     m_file,_ := json.Marshal(file)
     SecureStore(m_file, file_credentials.File_key, file_credentials.File_salt)
     // storing the file data
-    SecureStore(data, file.Filedata_keys[0], file.Filedata_salts[0])
+    m_data,_ := json.Marshal(data)
+    SecureStore(m_data, file.Filedata_keys[0], file.Filedata_salts[0])
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -319,8 +314,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error){
     /* APPEND FILE */
     /*** YOUR CODE HERE ***/
     // retrieve file credentials
-    password := userdata.Password
-    m_file_credentials, err := SecureGet(password, filename)
+    m_file_credentials, err := SecureGet(userdata.Password, []byte(filename))
     if err != nil {
         return err 
     }
@@ -328,9 +322,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error){
     json.Unmarshal(m_file_credentials, &file_credentials)
 
     // retrieve file
-    file_key := file_credentials.File_key
-    file_salt := file_credentials.File_salt
-    m_file, err := SecureGet(file_key, file_salt)
+    m_file, err := SecureGet(file_credentials.File_key, file_credentials.File_salt)
     if err != nil {
         return err
     }
@@ -339,17 +331,16 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error){
 
     // append data to file
     file.N_appends++
-    file.Filedata_keys = append(file.Filedata_keys, string(randomBytes(64)[:]))
-    file.Filedata_salts = append(file.Filedata_salts, string(randomBytes(16)[:]))
+    file.Filedata_keys = append(file.Filedata_keys, randomBytes(64))
+    file.Filedata_salts = append(file.Filedata_salts, randomBytes(16))
 
     // store data
-    data_key := file.Filedata_keys[file.N_appends]
-    data_salt := file.Filedata_salts[file.N_appends]
-    SecureStore(data, data_key, data_salt)
+    m_data,_ := json.Marshal(data)
+    SecureStore(m_data, file.Filedata_keys[file.N_appends], file.Filedata_salts[file.N_appends])
 
     // update/store new file version
     m_file,_ = json.Marshal(file)
-    SecureStore(m_file, file_key, file_salt)
+    SecureStore(m_file, file_credentials.File_key, file_credentials.File_salt)
 
     return err
 }
@@ -370,7 +361,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
     /* LOAD FILE */
     /*** YOUR CODE HERE ***/
     // retrieve file credentials
-    m_file_credentials, err := SecureGet(userdata.Password, filename)
+    m_file_credentials, err := SecureGet([]byte(userdata.Password), []byte(filename))
     if err != nil {
         return nil, err 
     }
@@ -379,7 +370,6 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 
     // retrieve file
     m_file, err := SecureGet(file_credentials.File_key, file_credentials.File_salt)
-debugMsg("%v", file_credentials)
     if err != nil {
         return nil, err
     }
@@ -388,12 +378,14 @@ debugMsg("%v", file_credentials)
 
     // piecing together the file data
     var complete_data []byte
-    // note: i <= N_appends, by implementation
+    var current_data []byte
+    // note: i ranges [0, N_appends], by implementation
     for i:=0; i<=file.N_appends; i++ {
-        current_data, err := SecureGet(file.Filedata_keys[i], file.Filedata_salts[i])
+        current_m_data, err := SecureGet(file.Filedata_keys[i], file.Filedata_salts[i])
         if err != nil {
             return nil, err
         }
+        json.Unmarshal(current_m_data, &current_data)
         complete_data = append(complete_data, current_data...)
     }
 
@@ -402,15 +394,15 @@ debugMsg("%v", file_credentials)
 
 type FileCredentials struct {
     /*** YOUR CODE HERE ***/
-    File_key string
-    File_salt string
+    File_key []byte
+    File_salt []byte
 }
 
 type File struct {
     /*** YOUR CODE HERE ***/
     N_appends int
-    Filedata_keys []string
-    Filedata_salts []string
+    Filedata_keys [][]byte
+    Filedata_salts [][]byte
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -419,7 +411,7 @@ type File struct {
 \*******************************************************************************/
 type sharingRecord struct {
     /*** YOUR CODE HERE ***/
-    FileRecord FileCredentials
+    File_record FileCredentials
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
