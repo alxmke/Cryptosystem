@@ -5,6 +5,8 @@ import (
     "testing"
     // userlib
     "github.com/nweaver/cs161-p2/userlib"
+    // byte function library
+    "bytes"
 )
 // You can actually import other stuff if you want IN YOUR TEST
 // HARNESS ONLY.  Note that this is NOT considered part of your
@@ -112,10 +114,23 @@ func TestFilestorage(t *testing.T) {
     userdata.StoreFile(filename, data)
     // load file
     retrieved_data, err := userdata.LoadFile(filename)
-    if err != nil {//&& !compare(data, retrieved_data) {
+    if err != nil {
         t.Error("Filesystem failure:", err)
     } else {
         t.Log("Correctly stored and retrieved file (", filename, ") with contents (", retrieved_data, ")")
+    }
+
+    // create new data to append
+    new_data := randomBytes(8)
+    t.Log("New data to append (", new_data, ")")
+    // append new data to file
+    userdata.AppendFile(filename, new_data)
+    // load updated file
+    retrieved_data, err = userdata.LoadFile(filename)
+    if err != nil || !bytes.Equal(retrieved_data, append(data, new_data...)) {
+        t.Error("Filesystem failure:", err)
+    } else {
+        t.Log("Correctly stored and retrieved file (", filename, ") with updated contents (", retrieved_data, ")")
     }
 }
 
