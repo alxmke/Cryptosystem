@@ -102,8 +102,8 @@ func randomBytes(bytes int) (data []byte) {
         panic(err)
     }
     return data
-}
 
+}
 var DebugPrint = false
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -149,13 +149,11 @@ func SecureGet(key []byte, name []byte) (m_data []byte, err error) {
     /*** YOUR CODE HERE ***/
     entry_data, valid := userlib.DatastoreGet(SecureUUID(name, key))
     if !valid {
-        err = errors.New("Error: Invalid credentials")
-        return nil, err
+        return nil, errors.New("Error: Invalid credentials")
     }
 
     if len(entry_data) < userlib.HashSize+32+userlib.BlockSize {
-        err = errors.New("Error: Corrupt data")
-        return nil, err
+        return nil, errors.New("Error: Corrupt data")
     }
 
     hmac_val := entry_data[:userlib.HashSize]
@@ -170,8 +168,7 @@ func SecureGet(key []byte, name []byte) (m_data []byte, err error) {
 
     H.Write(hmac_in)
     if !userlib.Equal(hmac_val, H.Sum(nil)) {
-        err = errors.New("Error: Corrupt data")
-        return nil, err
+        return nil, errors.New("Error: Corrupt data")
     }
 
     D.XORKeyStream(em_data, em_data)
@@ -230,10 +227,9 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
     m_userdata,_ := json.Marshal(userdata)
     SecureStore(m_userdata, b_password, b_username)
 
-    sUUID := SecureUUID(b_username, b_password)
-    userlib.KeystoreSet(sUUID, user_rsa_key.PublicKey)
+    userlib.KeystoreSet(username, user_rsa_key.PublicKey)
 
-    return &userdata, err
+    return &userdata, nil
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -259,7 +255,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
     var userdata User
     json.Unmarshal(m_data, &userdata)
 
-    return &userdata, err
+    return &userdata, nil
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -284,7 +280,7 @@ func (userdata *User) StoreFile(filename string, data []byte) {
     file := File{0, [][]byte{randomBytes(64)}, [][]byte{randomBytes(16)}}
     // storing the file credentials
     m_file_credentials,_ := json.Marshal(file_credentials)
-    SecureStore(m_file_credentials, []byte(userdata.Password), []byte(filename))
+    SecureStore(m_file_credentials, userdata.Password, []byte(filename))
     // storing the file
     m_file,_ := json.Marshal(file)
     SecureStore(m_file, file_credentials.File_key, file_credentials.File_salt)
@@ -342,7 +338,7 @@ func (userdata *User) AppendFile(filename string, data []byte) (err error){
     m_file,_ = json.Marshal(file)
     SecureStore(m_file, file_credentials.File_key, file_credentials.File_salt)
 
-    return err
+    return nil
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -361,7 +357,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
     /* LOAD FILE */
     /*** YOUR CODE HERE ***/
     // retrieve file credentials
-    m_file_credentials, err := SecureGet([]byte(userdata.Password), []byte(filename))
+    m_file_credentials, err := SecureGet(userdata.Password, []byte(filename))
     if err != nil {
         return nil, err 
     }
@@ -389,7 +385,7 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
         complete_data = append(complete_data, current_data...)
     }
 
-    return complete_data, err
+    return complete_data, nil
 }
 
 type FileCredentials struct {
@@ -411,7 +407,7 @@ type File struct {
 \*******************************************************************************/
 type sharingRecord struct {
     /*** YOUR CODE HERE ***/
-    File_record FileCredentials
+    // unused
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -428,7 +424,34 @@ type sharingRecord struct {
 func (userdata *User) ShareFile(filename string, recipient string) (msgid string, err error) {
     /* SHARE FILE */
     /*** YOUR CODE HERE ***/
-    return
+    // retrieving file credentials
+    m_file_credentials, err := SecureGet(userdata.Password, []byte(filename))
+    if err != nil {
+        return "", err 
+    }
+    var file_credentials FileCredentials
+    json.Unmarshal(m_file_credentials, &file_credentials)
+
+    // retrieve recipient's public key
+    recipient_pubkey, valid_recipient := userlib.KeystoreGet(recipient)
+    if !valid_recipient {
+        return "", errors.New("Error: Recipient key does not exist")
+    }
+
+    // rsa encrypt using recipient's public key
+    e_msg, err := userlib.RSAEncrypt(&recipient_pubkey, append(file_credentials.File_key, file_credentials.File_salt...), []byte("file share"))
+    if err != nil {
+        return "", err
+    }
+
+    // rsa sign using sender's private key
+    e_msg_sig, err := userlib.RSASign(userdata.RSA_key, e_msg)
+    if err != nil {
+        return "", err
+    }
+
+    // return encrypted and signed message (cast to string)
+    return string(append(e_msg_sig, e_msg...)), nil
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
@@ -440,30 +463,92 @@ func (userdata *User) ShareFile(filename string, recipient string) (msgid string
 func (userdata *User) ReceiveFile(filename string, sender string, msgid string) (err error) {
     /* RECEIVE FILE */
     /*** YOUR CODE HERE ***/
-    return
+    // recasting, reformatting, and splitting msgid to components
+    b_msgid := []byte(msgid)
+    e_msg_sig := b_msgid[:256]      // index 256, from len() of return of PKCS#1 Sig
+    e_msg := b_msgid[256:]
+    // fetch the sender's public key
+    sender_pubkey, valid_sender := userlib.KeystoreGet(sender)
+    if !valid_sender {
+        return errors.New("Error: Sender key does not exist")
+    }
+
+    // verify sender's signature
+    err = userlib.RSAVerify(&sender_pubkey, e_msg, e_msg_sig)
+    if err != nil {
+        return err //errors.New("RSA verification failure")
+    }
+
+    // decrypt message holding shared file credentials 
+    key_salt, err := userlib.RSADecrypt(userdata.RSA_key, e_msg, []byte("file share"))
+    if err != nil {
+        return err
+    }
+
+    // creating file credentials that give access to shared file
+    file_credentials := FileCredentials{key_salt[:64], key_salt[64:]}
+
+    // storing the file credentials with filename
+    m_file_credentials,_ := json.Marshal(file_credentials)
+    SecureStore(m_file_credentials, userdata.Password, []byte(filename))
+
+    return nil
 }
 
 /*******************************INSTRUCTOR NOTE*********************************\
-  Removes access for all others.
+  Removes access to the given file for all non-owner users.
 \*******************************************************************************/
 func (userdata *User) RevokeFile(filename string) (err error) {
     /* REVOKE FILE */
     /*** YOUR CODE HERE ***/
-    // gets the file data, error will be able to tell if file was corrupt/unaccessible
-    data, err := userdata.LoadFile(filename)
-    /*
-      reinitializes file (with most current data) to a new, different location (unknown to
-      previous users with delegated access) if file isn't corrupt/unaccessible
+    /* (revocation if we don't care if the old file copy remains accessible on data store)
+        data, err := userdata.LoadFile(filename)
+        if err != nil {
+            return err
+        }
+        userdata.StoreFile(filename, data)
+        return nil
     */
+
+    // retrieve current file location
+    m_file_credentials, err := SecureGet(userdata.Password, []byte(filename))
+    if err != nil {
+        return err 
+    }
+    var file_credentials FileCredentials
+    json.Unmarshal(m_file_credentials, &file_credentials)
+
+    // retrieve file, delete it from the datastore, and properly reformat it
+    m_file, err := SecureGet(file_credentials.File_key, file_credentials.File_salt)
     if err != nil {
         return err
     }
-    userdata.StoreFile(filename, data)
+    userlib.DatastoreDelete(SecureUUID(file_credentials.File_salt, file_credentials.File_key))
+    var file File
+    json.Unmarshal(m_file, &file)
 
-    return err
+    // piecing together the complete file data
+    var complete_data []byte
+    var current_data []byte
+    // note: i ranges [0, N_appends], by implementation
+    for i:=0; i<=file.N_appends; i++ {
+        // retrieve data chunk from datastore and delete it from the datastore
+        current_m_data, err := SecureGet(file.Filedata_keys[i], file.Filedata_salts[i])
+        if err != nil {
+            return err
+        }
+        userlib.DatastoreDelete(SecureUUID(file.Filedata_salts[i], file.Filedata_keys[i]))
+        // properly reformat data chunk and place it into its position
+        json.Unmarshal(current_m_data, &current_data) 
+        complete_data = append(complete_data, current_data...)
+    }
+
+    // store file with most recent data at fresh, secret, unshared location
+    userdata.StoreFile(filename, complete_data)
+    return nil
 }
 
-/***************************************USERLIB FUNCTIONS:****************************************\
+/***************************************USERLIB FUNCTIONS:****************************************\userlib.
 
     • Set and Get from the Datastore
         DatastoreSet(key string, value []byte)
@@ -521,14 +606,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
     • the error MAY not distinguish between a bad username, bad password, or corrupted data
     LoadUser(username string, password string)
 
-    COMPLETED []
-    • IF (not under attack by {storage server, some user}) THEN (LoadFile() MUST return:
-      (last value stored at filename) or (nil if no such file exists) and (MUST NOT raise
-      an IntegrityError, or any other error))
-    • MUST NOT EVER return an incorrect value (value is incorrect
-    LoadFile(filename string)
-
-    COMPLETED []
+    COMPLETED [x]
     • MUST place data at filename (so that future LoadFile()'s return data) {associate file
       with data?}
     • Any person other than the owner of filename MUST NOT be able to learn even partial
@@ -536,8 +614,8 @@ func (userdata *User) RevokeFile(filename string) (err error) {
       than len(data))
     StoreFile(filename string, data []byte)
 
-    COMPLETED []
-    • MUST append the value data at filename (so that future LoadFile()'s for filename return
+    COMPLETED [x]
+    • MUST append the value data at filename (so that future LoadFile()s for filename return
       data appended to the previous contents)
     • AppendFile MAY return an error if some parts of the file are corrupted
     • Any person other than the owner of filename MUST NOT be able to learn even partial
@@ -546,6 +624,13 @@ func (userdata *User) RevokeFile(filename string) (err error) {
     • AppendFile() MUST BE efficient--when adding on to the end of a file, sending the
       unchanged bytes again is unnecessary
     AppendFile(filename string, data []byte)
+
+    COMPLETED [x]
+    • IF (not under attack by {storage server, some user}) THEN (LoadFile() MUST return:
+      (last value stored at filename) or (nil if no such file exists) and (MUST NOT raise
+      an IntegrityError, or any other error))
+    • MUST NOT EVER return an incorrect value (value is incorrect
+    LoadFile(filename string)
     
     • filenames are alphanumeric
     • filenames are not empy
