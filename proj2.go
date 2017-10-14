@@ -510,7 +510,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
         return nil
     */
 
-    // retrieve current file locatio
+    // retrieve current file location
     m_file_credentials, err := SecureGet(userdata.Password, []byte(filename))
     if err != nil {
         return err 
