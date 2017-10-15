@@ -234,7 +234,19 @@ func TestFileshare(t *testing.T) {
         t.Log("Succesfully received shared file credentials for file (", alice_filename, ") and stored under receiver filename (", bob_filename, ")")
     }
 
-
+    // confirm file access for owner and delegee
+    retrieved_data, err := alice.LoadFile(alice_filename)
+    if err != nil || !bytes.Equal(file_data, retrieved_data) {
+        t.Error("Owner file credentials access failure for file (", alice_filename, ") with error (", err, ")")
+    } else {
+        t.Log("Confirmed owner (", string(alice.Username) , ") access/data retention for file (", alice_filename, ")")
+    }
+    retrieved_data, err = bob.LoadFile(bob_filename)
+    if err != nil || !bytes.Equal(file_data, retrieved_data) {
+        t.Error("Owner file credentials access failure for file (", bob_filename, ") with error (", err, ")")
+    } else {
+        t.Log("Delegee owner (", string(bob.Username) , ") access/data retention for file (", bob_filename, ")")
+    }
 }
 
 func TestIntegrityFSVA(t *testing.T) {

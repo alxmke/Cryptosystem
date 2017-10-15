@@ -223,7 +223,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
     b_password := []byte(password)
 
     user_rsa_key,_ := userlib.GenerateRSAKey()
-    userdata := User{user_rsa_key, b_username, b_password}
+    userdata := User{user_rsa_key, b_username, b_password} // consider changing b_password => randomBytes(64)?
     m_userdata,_ := json.Marshal(userdata)
     SecureStore(m_userdata, b_password, b_username)
 
