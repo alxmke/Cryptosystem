@@ -333,3 +333,45 @@ func TestRevocation(t *testing.T) {
         t.Log("Confirmed owner (", string(alice.Username) , ") access/data retention for file (", alice_filename, ")")
     }
 }
+
+// given by Nick on Piazza
+func Test2(t *testing.T) {
+    alice,_ := InitUser("alice","fubar")
+    // Having previously created a user "alice" with password "fubar"...
+    alice, _ = GetUser("alice", "fubar")
+    also_alice, _ := GetUser("alice", "fubar")
+
+    alice.StoreFile("todo", []byte("write tests"))
+    todo, _ := also_alice.LoadFile("todo")
+    if string(todo) != "write tests" {
+        t.Error("Same user and password could not access file: ", todo)
+    }
+}
+
+func TestIntegrityDataswapU(t *testing.T) {
+    t.Log("*** User dataswap corruption detection test ***")
+    alice,_ := InitUser("alice","fubar")
+    balice,_ := InitUser("balice","fubarb")
+
+    sUUID_a := SecureUUID(alice.Username, alice.Password)
+    sUUID_b := SecureUUID(balice.Username, balice.Password)
+
+    adat,_ := userlib.DatastoreGet(sUUID_a)
+    bdat,_ := userlib.DatastoreGet(sUUID_b)
+    userlib.DatastoreSet(sUUID_a, bdat)
+    userlib.DatastoreSet(sUUID_b, adat)
+
+    alice, err := GetUser("alice", "fubar")
+    if err == nil {
+        t.Error("Failed to throw corruption error.")
+    } else {
+        t.Log("Properly detected corruption.")
+    }
+
+    balice, err = GetUser("balice", "fubarb")
+    if err == nil {
+        t.Error("Failed to throw corruption error.")
+    } else {
+        t.Log("Properly detected corruption.")
+    }
+}
