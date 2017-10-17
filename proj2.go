@@ -358,6 +358,9 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
     /*** YOUR CODE HERE ***/
     // retrieve file credentials
     m_file_credentials, err := SecureGet(userdata.Password, []byte(filename))
+     if err != nil && err.Error() == "Error: Invalid credentials" {
+        return nil, nil // specs strangely specify non-existance of file as non-error
+    }
     if err != nil {
         return nil, err 
     }
@@ -366,6 +369,9 @@ func (userdata *User) LoadFile(filename string) (data []byte, err error) {
 
     // retrieve file
     m_file, err := SecureGet(file_credentials.File_key, file_credentials.File_salt)
+    if err != nil && err.Error() == "Error: Invalid credentials" {
+        return nil, nil // specs strangely specify non-existance of file as non-error
+    }
     if err != nil {
         return nil, err
     }

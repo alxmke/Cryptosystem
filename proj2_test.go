@@ -194,6 +194,7 @@ func TestIntegrityFDVA(t *testing.T) {
         t.Log("Correctly stored and retrieved file (", filename, ") with contents (", retrieved_data, ")")
     }
 
+ /*(no longer considered an error)
     // destroy data
     userlib.DatastoreDelete(sUUID)
 
@@ -204,6 +205,7 @@ func TestIntegrityFDVA(t *testing.T) {
     } else {
         t.Log("Correctly threw error (", err, ") indicating data loss")
     }
+ */
 }
 
 func TestFileshare(t *testing.T) {
@@ -315,14 +317,18 @@ func TestRevocation(t *testing.T) {
 
     // check file access for all users who had access prior to revocation
     retrieved_data, err := charlie.LoadFile(charlie_filename)
-    if err == nil {
+    if retrieved_data != nil {
         t.Error("Erroneous file access retention for previous delegee  (", string(charlie.Username), ")")
+    } else if err != nil {
+        t.Error("Erroneous error (", err, ")")
     } else {
         t.Log("Confirmed revocation of file access for previous delegee  (", string(charlie.Username), ")")
     }
     retrieved_data, err = bob.LoadFile(bob_filename)
-    if err == nil {
+    if retrieved_data != nil {
         t.Error("Erroneous file access retention for previous delegee  (", string(bob.Username), ")")
+    } else if err != nil {
+        t.Error("Erroneous error (", err, ")")
     } else {
         t.Log("Confirmed revocation of file access for previous delegee  (", string(bob.Username), ")")
     }
