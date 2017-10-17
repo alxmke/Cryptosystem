@@ -507,15 +507,15 @@ func (userdata *User) ReceiveFile(filename string, sender string, msgid string) 
 func (userdata *User) RevokeFile(filename string) (err error) {
     /* REVOKE FILE */
     /*** YOUR CODE HERE ***/
-    /* (revocation if we don't care if the old file copy remains accessible on data store)
-        data, err := userdata.LoadFile(filename)
-        if err != nil {
-            return err
-        }
-        userdata.StoreFile(filename, data)
-        return nil
-    */
+    // other version below has weird side effects if delegee calls RevokeFile()
+    data, err := userdata.LoadFile(filename)
+    if err != nil {
+        return err
+    }
+    userdata.StoreFile(filename, data)
+    return nil
 
+/*
     // retrieve current file location
     m_file_credentials, err := SecureGet(userdata.Password, []byte(filename))
     if err != nil {
@@ -552,6 +552,7 @@ func (userdata *User) RevokeFile(filename string) (err error) {
     // store file with most recent data at fresh, secret, unshared location
     userdata.StoreFile(filename, complete_data)
     return nil
+*/
 }
 
 /***************************************USERLIB FUNCTIONS:****************************************\userlib.

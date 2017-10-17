@@ -316,6 +316,7 @@ func TestRevocation(t *testing.T) {
     }
 
     // check file access for all users who had access prior to revocation
+ /*(Previous file access retention permissible, so removed these tests)
     retrieved_data, err := charlie.LoadFile(charlie_filename)
     if retrieved_data != nil {
         t.Error("Erroneous file access retention for previous delegee  (", string(charlie.Username), ")")
@@ -332,11 +333,21 @@ func TestRevocation(t *testing.T) {
     } else {
         t.Log("Confirmed revocation of file access for previous delegee  (", string(bob.Username), ")")
     }
-    retrieved_data, err = alice.LoadFile(alice_filename)
+*/
+    retrieved_data, err := alice.LoadFile(alice_filename)
     if err != nil || !bytes.Equal(file_data, retrieved_data) {
         t.Error("Owner file credentials access failure for file (", alice_filename, ") with error (", err, ")")
     } else {
         t.Log("Confirmed owner (", string(alice.Username) , ") access/data retention for file (", alice_filename, ")")
+    }
+
+    new_bob_data := randomBytes(8)
+    bob.AppendFile(bob_filename, new_bob_data)
+    alice_currentfile,_ := alice.LoadFile(alice_filename)
+    if bytes.Equal(alice_currentfile, append(retrieved_data, new_bob_data...)) {
+        t.Error("Error: previous delegee still has access to revoked file.")
+    } else {
+        t.Log("Revocation confirmed for past delegees.")
     }
 }
 
